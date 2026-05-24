@@ -47,7 +47,7 @@ async function run() {
     app.post("/create-checout-session", async (req, res) => {
       const paymentInfo = req.body;
       const amount = parseInt(paymentInfo.price) * 100;
-      console.log(paymentInfo);
+      // console.log(paymentInfo);
       // res.send(paymentInfo)
 
       const session = await stripe.checkout.sessions.create({
@@ -69,19 +69,20 @@ async function run() {
         mode: "payment",
         metadata: {
           bookId: paymentInfo.bookId,
+          librarianEmail: paymentInfo?.librarian?.Lemail || "",
         },
         success_url: `${process.env.SITE_DOMAIN}/paymentSuccess?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${process.env.SITE_DOMAIN}/paymentCancel`,
       });
 
-      console.log(session);
+      // console.log(session);
       res.send({ url: session.url });
     });
 
     app.post("/paymentSuccess", async (req, res) => {
       const { sessionId } = req.body;
       const session = await stripe.checkout.sessions.retrieve(sessionId);
-      // console.log(session)
+      console.log(session)
       const book = await booksCollection.findOne({
         _id: new ObjectId(session.metadata.bookId),
       });
@@ -95,14 +96,33 @@ async function run() {
         const orderInfo = {
           bookId: session.metadata.bookId,
           transactionId: session.payment_intent,
+          customer:session.metadata.librarianEmail,
           status: "pending",
           amount: session.amount_total / 100,
+          name:book.title,
+          author:book.author,
+          image:book.image,
+          time:book.createdAt,
         };
-        // console.log(orderInfo);
+        console.log(orderInfo);
         const result = await orderCollection.insertOne(orderInfo);
       }
       res.send(book);
     });
+
+    // get alll order for a customer by email
+    app.get('/myOrder/:email',async(req,res)=>{
+      const email=req.params.email
+      const result= await orderCollection.find({customer:email}).toArray()
+      res.send(result)
+    })
+
+    // get all book for a librarian by email
+    app.get('/myBook/:email',async(req,res)=>{
+      const email=req.params.email
+      const result= await booksCollection.find({"librarian.email":email}).toArray()
+      res.send(result)
+    })
 
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
