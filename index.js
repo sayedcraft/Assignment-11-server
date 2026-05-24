@@ -24,6 +24,7 @@ async function run() {
     const db = client.db("booksDB");
     const booksCollection = db.collection("books");
     const orderCollection = db.collection("orders");
+    const userCollection = db.collection("users");
 
     app.post("/books", async (req, res) => {
       const bookData = req.body;
@@ -43,7 +44,7 @@ async function run() {
       res.send(result);
     });
 
-    // payment
+    // payment related api
     app.post("/create-checout-session", async (req, res) => {
       const paymentInfo = req.body;
       const amount = parseInt(paymentInfo.price) * 100;
@@ -82,7 +83,7 @@ async function run() {
     app.post("/paymentSuccess", async (req, res) => {
       const { sessionId } = req.body;
       const session = await stripe.checkout.sessions.retrieve(sessionId);
-      console.log(session)
+      console.log(session);
       const book = await booksCollection.findOne({
         _id: new ObjectId(session.metadata.bookId),
       });
@@ -96,13 +97,13 @@ async function run() {
         const orderInfo = {
           bookId: session.metadata.bookId,
           transactionId: session.payment_intent,
-          customer:session.metadata.librarianEmail,
+          customer: session.metadata.librarianEmail,
           status: "pending",
           amount: session.amount_total / 100,
-          name:book.title,
-          author:book.author,
-          image:book.image,
-          time:book.createdAt,
+          name: book.title,
+          author: book.author,
+          image: book.image,
+          time: book.createdAt,
         };
         console.log(orderInfo);
         const result = await orderCollection.insertOne(orderInfo);
@@ -111,18 +112,46 @@ async function run() {
     });
 
     // get alll order for a customer by email
-    app.get('/myOrder/:email',async(req,res)=>{
-      const email=req.params.email
-      const result= await orderCollection.find({customer:email}).toArray()
-      res.send(result)
-    })
+    app.get("/myOrder/:email", async (req, res) => {
+      const email = req.params.email;
+      const result = await orderCollection.find({ customer: email }).toArray();
+      res.send(result);
+    });
 
     // get all book for a librarian by email
-    app.get('/myBook/:email',async(req,res)=>{
-      const email=req.params.email
-      const result= await booksCollection.find({"librarian.email":email}).toArray()
-      res.send(result)
-    })
+    app.get("/myBook/:email", async (req, res) => {
+      const email = req.params.email;
+      const result = await booksCollection
+        .find({ "librarian.email": email })
+        .toArray();
+      res.send(result);
+    });
+
+    // user in db
+    app.post("/user", async (req, res) => {
+      const userData = req.body;
+      // console.log(userData);
+
+      userData.created_at =new Date().toISOString();
+      userData.last_loggedIn = new Date().toISOString();
+
+      const query={
+          email: userData.email,
+      }
+
+      const alreadyExists = await userCollection.findOne(query);
+      if(alreadyExists){
+        const result = await userCollection.updateOne(query,{
+          $set:{
+            last_loggedIn : new Date().toISOString(),
+          },
+        })
+        return res.send(result);
+      }
+
+      const result = await userCollection.insertOne(userData);
+      res.send(result);
+    });
 
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
