@@ -23,6 +23,7 @@ async function run() {
   try {
     const db = client.db("booksDB");
     const booksCollection = db.collection("books");
+    const orderCollection = db.collection("orders");
 
     app.post("/books", async (req, res) => {
       const bookData = req.body;
@@ -56,10 +57,11 @@ async function run() {
               currency: "USD",
               unit_amount: amount,
               product_data: {
-                  name: paymentInfo?.title || "Book Purchase",
-                  description: paymentInfo?.description || "No description available",
-                  images: [paymentInfo?.image] ,
-                },
+                name: paymentInfo?.title || "Book Purchase",
+                description:
+                  paymentInfo?.description || "No description available",
+                images: [paymentInfo?.image],
+              },
             },
             quantity: 1,
           },
@@ -68,12 +70,38 @@ async function run() {
         metadata: {
           bookId: paymentInfo.bookId,
         },
-        success_url: `${process.env.SITE_DOMAIN}/paymentSuccess`,
+        success_url: `${process.env.SITE_DOMAIN}/paymentSuccess?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${process.env.SITE_DOMAIN}/paymentCancel`,
       });
 
       console.log(session);
       res.send({ url: session.url });
+    });
+
+    app.post("/paymentSuccess", async (req, res) => {
+      const { sessionId } = req.body;
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      // console.log(session)
+      const book = await booksCollection.findOne({
+        _id: new ObjectId(session.metadata.bookId),
+      });
+
+      const order = await orderCollection.findOne({
+        transactionId: session.payment_intent,
+      });
+
+      // save order data in db
+      if (session.status === "complete" && book && !order) {
+        const orderInfo = {
+          bookId: session.metadata.bookId,
+          transactionId: session.payment_intent,
+          status: "pending",
+          amount: session.amount_total / 100,
+        };
+        // console.log(orderInfo);
+        const result = await orderCollection.insertOne(orderInfo);
+      }
+      res.send(book);
     });
 
     // Connect the client to the server	(optional starting in v4.7)
