@@ -10,7 +10,12 @@ const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster
 
 // middlewere
 app.use(express.json());
-app.use(cors());
+app.use(
+  cors({
+    origin: ["http://localhost:5173"],
+    credentials: true,
+  }),
+);
 
 const client = new MongoClient(uri, {
   serverApi: {
@@ -132,25 +137,33 @@ async function run() {
       const userData = req.body;
       // console.log(userData);
 
-      userData.created_at =new Date().toISOString();
+      userData.created_at = new Date().toISOString();
       userData.last_loggedIn = new Date().toISOString();
+      userData.role = "user";
 
-      const query={
-          email: userData.email,
-      }
+      const query = {
+        email: userData.email,
+      };
 
       const alreadyExists = await userCollection.findOne(query);
-      if(alreadyExists){
-        const result = await userCollection.updateOne(query,{
-          $set:{
-            last_loggedIn : new Date().toISOString(),
+      if (alreadyExists) {
+        const result = await userCollection.updateOne(query, {
+          $set: {
+            last_loggedIn: new Date().toISOString(),
           },
-        })
+        });
         return res.send(result);
       }
 
       const result = await userCollection.insertOne(userData);
       res.send(result);
+    });
+
+    // user role
+    app.get("/user/role/:email", async (req, res) => {
+      const email = req.params.email;
+      const result = await userCollection.findOne({ email });
+      res.send({ role: result?.role });
     });
 
     // Connect the client to the server	(optional starting in v4.7)
