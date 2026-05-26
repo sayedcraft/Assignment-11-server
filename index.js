@@ -32,6 +32,16 @@ async function run() {
     const orderCollection = db.collection("orders");
     const userCollection = db.collection("users");
 
+    // letast bok for home
+    app.get("/latest-books", async (req, res) => {
+      const result = await booksCollection
+        .find()
+        .sort({ _id: -1 })
+        .limit(8)
+        .toArray();
+      res.send(result);
+    });
+
     // Get all books
     app.get("/books", async (req, res) => {
       const cursor = booksCollection.find();
@@ -286,6 +296,37 @@ async function run() {
       } catch (error) {
         res.status(500).send({ message: "Failed to update book", error });
       }
+    });
+
+    // AllBook for admin
+    app.get("/admin/all-books", async (req, res) => {
+      const result = await booksCollection.find().toArray();
+      res.send(result);
+    });
+
+    // delete book by admin
+    app.delete("/admin/books/:id", async (req, res) => {
+      const id = req.params.id;
+      const bookIdStr = id.toString();
+
+      await orderCollection.deleteMany({ bookId: bookIdStr });
+
+      const result = await booksCollection.deleteOne({ _id: new ObjectId(id) });
+      res.send(result);
+    });
+
+    // p/up by admin
+    app.patch("/admin/books/status/:id", async (req, res) => {
+      const id = req.params.id;
+      const { status } = req.body; // ফ্রন্টএন্ড থেকে 'Published' বা 'Unpublished' আসবে
+
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: { status: status },
+      };
+
+      const result = await booksCollection.updateOne(filter, updateDoc);
+      res.send(result);
     });
 
     // Connect the client to the server
