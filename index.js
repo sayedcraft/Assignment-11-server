@@ -8,7 +8,7 @@ const port = process.env.PORT || 3000;
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.at2amoq.mongodb.net/?appName=Cluster0`;
 
-// Middleware - Always keep these at the top
+// Middleware 
 app.use(express.json());
 app.use(
   cors({
@@ -66,8 +66,7 @@ async function run() {
               unit_amount: amount,
               product_data: {
                 name: paymentInfo?.title || "Book Purchase",
-                description:
-                  paymentInfo?.description || "No description available",
+                description: paymentInfo?.description || "No description available",
                 images: [paymentInfo?.image],
               },
             },
@@ -104,17 +103,31 @@ async function run() {
           bookId: session.metadata.bookId,
           transactionId: session.payment_intent,
           customer: session.metadata.librarianEmail,
-          status: "pending",
+          orderStatus: "success", 
+          paymentStatus: "paid",
           amount: session.amount_total / 100,
           name: book.title,
           author: book.author,
           image: book.image,
-          time: book.createdAt,
+          createdAt: new Date().toISOString(), 
         };
         await orderCollection.insertOne(orderInfo);
       }
       res.send(book);
     });
+
+    // ----------------------------------------------------
+    // Cancel an Order Route 
+    app.patch("/orders/cancel/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: { orderStatus: "cancelled" }
+      };
+      const result = await orderCollection.updateOne(query, updateDoc);
+      res.send(result);
+    });
+    // ----------------------------------------------------
 
     // Get orders for customer
     app.get("/myOrder/:email", async (req, res) => {
@@ -122,6 +135,18 @@ async function run() {
       const result = await orderCollection.find({ customer: email }).toArray();
       res.send(result);
     });
+
+    // for Invoice
+    app.get("/payments/:email", async (req, res) => {
+      const email = req.params.email;
+      const query = { 
+        customer: email, 
+        paymentStatus: "paid", 
+        orderStatus: "success" 
+      };
+      const result = await orderCollection.find(query).toArray();
+      res.send(result);
+    }); 
 
     // Get books for librarian
     app.get("/myBook/:email", async (req, res) => {
@@ -161,7 +186,6 @@ async function run() {
       res.send({ role: result?.role || "user" });
     });
 
-    // ------------------------------
     // Get all users
     app.get("/users", async (req, res) => {
       const adminEmail = req.query.email;
@@ -185,24 +209,6 @@ async function run() {
       res.send(result);
     });
 
-    // // FIXED & ADDED: Update User Profile
-    // app.patch("/update-user-data/:email", async (req, res) => {
-    //   const email = req.params.email;
-    //   const { name, image } = req.body;
-    //   const query = { email: email };
-
-    //   const updateDoc = {
-    //     $set: {
-    //       name: name,
-    //       image: image,
-    //       updated_at: new Date().toISOString()
-    //     }
-    //   };
-
-    //   const result = await userCollection.updateOne(query, updateDoc);
-    //   res.send(result);
-    // });
-
     // Connect the client to the server
     await client.connect();
     await client.db("admin").command({ ping: 1 });
@@ -210,7 +216,6 @@ async function run() {
       "Pinged your deployment. You successfully connected to MongoDB!",
     );
   } finally {
-    // Keep connection alive
   }
 }
 run().catch(console.dir);
