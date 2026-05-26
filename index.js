@@ -14,7 +14,7 @@ app.use(
   cors({
     origin: ["http://localhost:5173"],
     credentials: true,
-  })
+  }),
 );
 
 const client = new MongoClient(uri, {
@@ -66,7 +66,8 @@ async function run() {
               unit_amount: amount,
               product_data: {
                 name: paymentInfo?.title || "Book Purchase",
-                description: paymentInfo?.description || "No description available",
+                description:
+                  paymentInfo?.description || "No description available",
                 images: [paymentInfo?.image],
               },
             },
@@ -89,7 +90,7 @@ async function run() {
     app.post("/paymentSuccess", async (req, res) => {
       const { sessionId } = req.body;
       const session = await stripe.checkout.sessions.retrieve(sessionId);
-      
+
       const book = await booksCollection.findOne({
         _id: new ObjectId(session.metadata.bookId),
       });
@@ -141,7 +142,7 @@ async function run() {
 
       const query = { email: userData.email };
       const alreadyExists = await userCollection.findOne(query);
-      
+
       if (alreadyExists) {
         const result = await userCollection.updateOne(query, {
           $set: { last_loggedIn: new Date().toISOString() },
@@ -160,13 +161,21 @@ async function run() {
       res.send({ role: result?.role || "user" });
     });
 
-    // Get all users (For Admin Component)
+    // ------------------------------
+    // Get all users
     app.get("/users", async (req, res) => {
-      const result = await userCollection.find().toArray();
+      const adminEmail = req.query.email;
+
+      let query = {};
+      if (adminEmail) {
+        query = { email: { $ne: adminEmail } };
+      }
+
+      const result = await userCollection.find(query).toArray();
       res.send(result);
     });
 
-    // Update user role (For Admin Action Control)
+    // Update user role
     app.patch("/update-role", async (req, res) => {
       const { email, role } = req.body;
       const query = { email: email };
@@ -176,12 +185,12 @@ async function run() {
       res.send(result);
     });
 
-    // // FIXED & ADDED: Update User Profile (Name and Photo URL tracking)
+    // // FIXED & ADDED: Update User Profile
     // app.patch("/update-user-data/:email", async (req, res) => {
     //   const email = req.params.email;
     //   const { name, image } = req.body;
     //   const query = { email: email };
-      
+
     //   const updateDoc = {
     //     $set: {
     //       name: name,
@@ -197,7 +206,9 @@ async function run() {
     // Connect the client to the server
     await client.connect();
     await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    console.log(
+      "Pinged your deployment. You successfully connected to MongoDB!",
+    );
   } finally {
     // Keep connection alive
   }
