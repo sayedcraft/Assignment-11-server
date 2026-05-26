@@ -2,9 +2,16 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+// const admin = require("firebase-admin");
 const app = express();
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const port = process.env.PORT || 3000;
+
+// -----------
+// const serviceAccount = require("./book-courier-firebase.json");
+// admin.initializeApp({
+//   credential: admin.credential.cert(serviceAccount),
+// });
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.at2amoq.mongodb.net/?appName=Cluster0`;
 
@@ -16,6 +23,23 @@ app.use(
     credentials: true,
   }),
 );
+
+// jwt middlewares
+
+// const verifyJWT = async (req, res, next) => {
+//   // console.log(token);
+//   if (!token) return res.status(401).send({ message: "Unauthorized Access" });
+//   try {
+//     const token = req?.headers?.authorization?.split(" ")[1];
+//     const decoded = await admin.auth().verifyIdToken(token);
+//     console.log('decoded in the token',decoded);
+//     req.tokenEmail = decoded.email;
+//   } catch (err) {
+//     // console.log(err);
+//     return res.status(401).send({ message: "Unauthorized Access", err });
+//   }
+//   next();
+// };
 
 const client = new MongoClient(uri, {
   serverApi: {
@@ -88,7 +112,7 @@ async function run() {
     app.post("/paymentSuccess", async (req, res) => {
       const { sessionId } = req.body;
       const session = await stripe.checkout.sessions.retrieve(sessionId);
-      console.log(session);
+      // console.log(session);
       const book = await booksCollection.findOne({
         _id: new ObjectId(session.metadata.bookId),
       });
@@ -110,7 +134,7 @@ async function run() {
           image: book.image,
           time: book.createdAt,
         };
-        console.log(orderInfo);
+        // console.log(orderInfo);
         const result = await orderCollection.insertOne(orderInfo);
       }
       res.send(book);
