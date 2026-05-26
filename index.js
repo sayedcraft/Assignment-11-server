@@ -8,7 +8,7 @@ const port = process.env.PORT || 3000;
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.at2amoq.mongodb.net/?appName=Cluster0`;
 
-// Middleware 
+// Middleware
 app.use(express.json());
 app.use(
   cors({
@@ -53,6 +53,19 @@ async function run() {
       res.send(result);
     });
 
+    // oder
+    app.post("/orders", async (req, res) => {
+      const orderInfo = req.body;
+      const finalOrder = {
+        ...orderInfo,
+        orderStatus: "pending",
+        paymentStatus: "unpaid",
+        createdAt: new Date().toISOString(),
+      };
+      const result = await orderCollection.insertOne(finalOrder);
+      res.send(result);
+    });
+
     // Payment session API
     app.post("/create-checout-session", async (req, res) => {
       const paymentInfo = req.body;
@@ -66,7 +79,8 @@ async function run() {
               unit_amount: amount,
               product_data: {
                 name: paymentInfo?.title || "Book Purchase",
-                description: paymentInfo?.description || "No description available",
+                description:
+                  paymentInfo?.description || "No description available",
                 images: [paymentInfo?.image],
               },
             },
@@ -75,8 +89,9 @@ async function run() {
         ],
         mode: "payment",
         metadata: {
+          orderId: paymentInfo.orderId,
           bookId: paymentInfo.bookId,
-          librarianEmail: paymentInfo?.librarian?.Lemail || "",
+          librarianEmail: paymentInfo?.customer || "",
         },
         success_url: `${process.env.SITE_DOMAIN}/paymentSuccess?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${process.env.SITE_DOMAIN}/paymentCancel`,
@@ -90,39 +105,37 @@ async function run() {
       const { sessionId } = req.body;
       const session = await stripe.checkout.sessions.retrieve(sessionId);
 
-      const book = await booksCollection.findOne({
-        _id: new ObjectId(session.metadata.bookId),
-      });
+      if (session.status === "complete") {
+        const orderId = session.metadata.orderId;
 
-      const order = await orderCollection.findOne({
-        transactionId: session.payment_intent,
-      });
-
-      if (session.status === "complete" && book && !order) {
-        const orderInfo = {
-          bookId: session.metadata.bookId,
-          transactionId: session.payment_intent,
-          customer: session.metadata.librarianEmail,
-          orderStatus: "success", 
-          paymentStatus: "paid",
-          amount: session.amount_total / 100,
-          name: book.title,
-          author: book.author,
-          image: book.image,
-          createdAt: new Date().toISOString(), 
+        const query = { _id: new ObjectId(orderId) };
+        const updateDoc = {
+          $set: {
+            orderStatus: "success",
+            paymentStatus: "paid",
+            transactionId: session.payment_intent,
+            amount: session.amount_total / 100,
+          },
         };
-        await orderCollection.insertOne(orderInfo);
+
+        await orderCollection.updateOne(query, updateDoc);
+
+        const book = await booksCollection.findOne({
+          _id: new ObjectId(session.metadata.bookId),
+        });
+        res.send(book);
+      } else {
+        res.status(400).send({ message: "Payment failed" });
       }
-      res.send(book);
     });
 
     // ----------------------------------------------------
-    // Cancel an Order Route 
+    // Cancel an Order Route
     app.patch("/orders/cancel/:id", async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const updateDoc = {
-        $set: { orderStatus: "cancelled" }
+        $set: { orderStatus: "cancelled" },
       };
       const result = await orderCollection.updateOne(query, updateDoc);
       res.send(result);
@@ -139,14 +152,14 @@ async function run() {
     // for Invoice
     app.get("/payments/:email", async (req, res) => {
       const email = req.params.email;
-      const query = { 
-        customer: email, 
-        paymentStatus: "paid", 
-        orderStatus: "success" 
+      const query = {
+        customer: email,
+        paymentStatus: "paid",
+        orderStatus: "success",
       };
       const result = await orderCollection.find(query).toArray();
       res.send(result);
-    }); 
+    });
 
     // Get books for librarian
     app.get("/myBook/:email", async (req, res) => {
@@ -207,6 +220,72 @@ async function run() {
 
       const result = await userCollection.updateOne(query, updateDoc);
       res.send(result);
+    });
+
+    //Librarian ordar control
+    app.get("/librarian/orders/:email", async (req, res) => {
+      try {
+        const email = req.params.email;
+
+        const librarianBooks = await booksCollection
+          .find({ "librarian.email": email })
+          .toArray();
+
+        const bookIds = librarianBooks.map((book) => book._id.toString());
+
+        const query = { bookId: { $in: bookIds } };
+
+        const result = await orderCollection.find(query).toArray();
+        res.send(result);
+      } catch (error) {
+        res
+          .status(500)
+          .send({ message: "Failed to fetch librarian orders", error });
+      }
+    });
+
+    //orderStatus
+    app.patch("/orders/update-status/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { status } = req.body;
+
+        const filter = { _id: new ObjectId(id) };
+        const updateDoc = {
+          $set: { orderStatus: status },
+        };
+
+        const result = await orderCollection.updateOne(filter, updateDoc);
+        res.send(result);
+      } catch (error) {
+        res
+          .status(500)
+          .send({ message: "Failed to update order status", error });
+      }
+    });
+
+    // Book Update API
+    app.put("/books/update/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const filter = { _id: new ObjectId(id) };
+        const updatedBook = req.body;
+
+        const updateDoc = {
+          $set: {
+            title: updatedBook.title,
+            author: updatedBook.author,
+            image: updatedBook.image,
+            price: updatedBook.price,
+            status: updatedBook.status,
+          },
+        };
+
+        const result = await booksCollection.updateOne(filter, updateDoc);
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Failed to update book", error });
+      }
     });
 
     // Connect the client to the server
