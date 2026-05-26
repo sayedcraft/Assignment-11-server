@@ -2,44 +2,20 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
-// const admin = require("firebase-admin");
 const app = express();
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const port = process.env.PORT || 3000;
 
-// -----------
-// const serviceAccount = require("./book-courier-firebase.json");
-// admin.initializeApp({
-//   credential: admin.credential.cert(serviceAccount),
-// });
-
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.at2amoq.mongodb.net/?appName=Cluster0`;
 
-// middlewere
+// Middleware - Always keep these at the top
 app.use(express.json());
 app.use(
   cors({
     origin: ["http://localhost:5173"],
     credentials: true,
-  }),
+  })
 );
-
-// jwt middlewares
-
-// const verifyJWT = async (req, res, next) => {
-//   // console.log(token);
-//   if (!token) return res.status(401).send({ message: "Unauthorized Access" });
-//   try {
-//     const token = req?.headers?.authorization?.split(" ")[1];
-//     const decoded = await admin.auth().verifyIdToken(token);
-//     console.log('decoded in the token',decoded);
-//     req.tokenEmail = decoded.email;
-//   } catch (err) {
-//     // console.log(err);
-//     return res.status(401).send({ message: "Unauthorized Access", err });
-//   }
-//   next();
-// };
 
 const client = new MongoClient(uri, {
   serverApi: {
@@ -48,6 +24,7 @@ const client = new MongoClient(uri, {
     deprecationErrors: true,
   },
 });
+
 async function run() {
   try {
     const db = client.db("booksDB");
@@ -55,30 +32,31 @@ async function run() {
     const orderCollection = db.collection("orders");
     const userCollection = db.collection("users");
 
-    app.post("/books", async (req, res) => {
-      const bookData = req.body;
-      const result = await booksCollection.insertOne(bookData);
-      res.send(result);
-    });
-
+    // Get all books
     app.get("/books", async (req, res) => {
       const cursor = booksCollection.find();
       const result = await cursor.toArray();
       res.send(result);
     });
 
+    // Add a book
+    app.post("/books", async (req, res) => {
+      const bookData = req.body;
+      const result = await booksCollection.insertOne(bookData);
+      res.send(result);
+    });
+
+    // Get specific book
     app.get("/books/:id", async (req, res) => {
       const id = req.params.id;
       const result = await booksCollection.findOne({ _id: new ObjectId(id) });
       res.send(result);
     });
 
-    // payment related api
+    // Payment session API
     app.post("/create-checout-session", async (req, res) => {
       const paymentInfo = req.body;
       const amount = parseInt(paymentInfo.price) * 100;
-      // console.log(paymentInfo);
-      // res.send(paymentInfo)
 
       const session = await stripe.checkout.sessions.create({
         line_items: [
@@ -88,8 +66,7 @@ async function run() {
               unit_amount: amount,
               product_data: {
                 name: paymentInfo?.title || "Book Purchase",
-                description:
-                  paymentInfo?.description || "No description available",
+                description: paymentInfo?.description || "No description available",
                 images: [paymentInfo?.image],
               },
             },
@@ -105,14 +82,14 @@ async function run() {
         cancel_url: `${process.env.SITE_DOMAIN}/paymentCancel`,
       });
 
-      // console.log(session);
       res.send({ url: session.url });
     });
 
+    // Payment success webhook setup
     app.post("/paymentSuccess", async (req, res) => {
       const { sessionId } = req.body;
       const session = await stripe.checkout.sessions.retrieve(sessionId);
-      // console.log(session);
+      
       const book = await booksCollection.findOne({
         _id: new ObjectId(session.metadata.bookId),
       });
@@ -121,7 +98,6 @@ async function run() {
         transactionId: session.payment_intent,
       });
 
-      // save order data in db
       if (session.status === "complete" && book && !order) {
         const orderInfo = {
           bookId: session.metadata.bookId,
@@ -134,20 +110,19 @@ async function run() {
           image: book.image,
           time: book.createdAt,
         };
-        // console.log(orderInfo);
-        const result = await orderCollection.insertOne(orderInfo);
+        await orderCollection.insertOne(orderInfo);
       }
       res.send(book);
     });
 
-    // get alll order for a customer by email
+    // Get orders for customer
     app.get("/myOrder/:email", async (req, res) => {
       const email = req.params.email;
       const result = await orderCollection.find({ customer: email }).toArray();
       res.send(result);
     });
 
-    // get all book for a librarian by email
+    // Get books for librarian
     app.get("/myBook/:email", async (req, res) => {
       const email = req.params.email;
       const result = await booksCollection
@@ -156,25 +131,20 @@ async function run() {
       res.send(result);
     });
 
-    // user in db
+    // Save user state in DB
     app.post("/user", async (req, res) => {
       const userData = req.body;
-      // console.log(userData);
 
       userData.created_at = new Date().toISOString();
       userData.last_loggedIn = new Date().toISOString();
       userData.role = "user";
 
-      const query = {
-        email: userData.email,
-      };
-
+      const query = { email: userData.email };
       const alreadyExists = await userCollection.findOne(query);
+      
       if (alreadyExists) {
         const result = await userCollection.updateOne(query, {
-          $set: {
-            last_loggedIn: new Date().toISOString(),
-          },
+          $set: { last_loggedIn: new Date().toISOString() },
         });
         return res.send(result);
       }
@@ -183,23 +153,53 @@ async function run() {
       res.send(result);
     });
 
-    // user role
+    // Get user role
     app.get("/user/role/:email", async (req, res) => {
       const email = req.params.email;
       const result = await userCollection.findOne({ email });
-      res.send({ role: result?.role });
+      res.send({ role: result?.role || "user" });
     });
 
-    // Connect the client to the server	(optional starting in v4.7)
+    // Get all users (For Admin Component)
+    app.get("/users", async (req, res) => {
+      const result = await userCollection.find().toArray();
+      res.send(result);
+    });
+
+    // Update user role (For Admin Action Control)
+    app.patch("/update-role", async (req, res) => {
+      const { email, role } = req.body;
+      const query = { email: email };
+      const updateDoc = { $set: { role: role } };
+
+      const result = await userCollection.updateOne(query, updateDoc);
+      res.send(result);
+    });
+
+    // // FIXED & ADDED: Update User Profile (Name and Photo URL tracking)
+    // app.patch("/update-user-data/:email", async (req, res) => {
+    //   const email = req.params.email;
+    //   const { name, image } = req.body;
+    //   const query = { email: email };
+      
+    //   const updateDoc = {
+    //     $set: {
+    //       name: name,
+    //       image: image,
+    //       updated_at: new Date().toISOString()
+    //     }
+    //   };
+
+    //   const result = await userCollection.updateOne(query, updateDoc);
+    //   res.send(result);
+    // });
+
+    // Connect the client to the server
     await client.connect();
-    // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!",
-    );
+    console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
-    // Ensures that the client will close when you finish/error
-    // await client.close();
+    // Keep connection alive
   }
 }
 run().catch(console.dir);
@@ -209,5 +209,5 @@ app.get("/", (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`);
+  console.log(`Server is listening on port ${port}`);
 });
