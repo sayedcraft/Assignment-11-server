@@ -13,11 +13,13 @@ app.use(express.json());
 app.use(
   cors({
     origin: [
-    "http://localhost:5173",              
-    "https://book-courier-74d78.web.app",       
-    "https://book-courier-74d78.firebaseapp.com" 
-  ],
-  credentials: true
+      "http://localhost:5173",
+      "https://book-courier-74d78.web.app",
+      "https://book-courier-74d78.firebaseapp.com",
+      "https://book-courier-by-sayed.web.app",
+      "https://book-courier-by-sayed.firebaseapp.com",
+    ],
+    credentials: true,
   }),
 );
 
